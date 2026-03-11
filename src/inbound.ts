@@ -1,65 +1,250 @@
 import { SessionType, type MessageItem } from "@openim/client-sdk";
 import { sendTextToTarget } from "./media";
-import type { ChatType, InboundBodyResult, OpenIMClientState, ParsedTarget } from "./types";
+import type { ChatType, InboundBodyResult, InboundMediaItem, OpenIMClientState, ParsedTarget } from "./types";
 import { formatSdkError } from "./utils";
 
 const inboundDedup = new Map<string, number>();
 const INBOUND_DEDUP_TTL_MS = 5 * 60 * 1000;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const IMAGE_FETCH_TIMEOUT_MS = 15000;
 
-function extractInboundBody(msg: MessageItem, depth = 0): InboundBodyResult {
-  if (msg.quoteElem?.quoteMessage) {
-    const quotedMsg = msg.quoteElem.quoteMessage;
-    const quotedSender = String(quotedMsg.senderNickname || quotedMsg.sendID || "unknown");
-    const quotedBody = depth < 2 ? extractInboundBody(quotedMsg, depth + 1).body || "[empty message]" : "[quoted message]";
-    const current = String(msg.quoteElem.text ?? msg.textElem?.content ?? msg.atTextElem?.text ?? "").trim();
+type ImagePart = { type: "image"; data: string; mimeType: string };
 
-    if (current) {
-      return {
-        body: `[Quote] ${quotedSender}: ${quotedBody}\nReply: ${current}`,
-        kind: "mixed",
-      };
-    }
+function normalizeImageMimeType(value: unknown): string | undefined {
+  const mime = String(value ?? "").trim().toLowerCase();
+  return mime.startsWith("image/") ? mime : undefined;
+}
+
+function normalizeMimeType(value: unknown): string | undefined {
+  const mime = String(value ?? "").trim().toLowerCase();
+  return mime.includes("/") ? mime : undefined;
+}
+
+function normalizeString(value: unknown): string | undefined {
+  const text = String(value ?? "").trim();
+  return text || undefined;
+}
+
+function normalizeSize(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function summarizeMedia(item: InboundMediaItem): string {
+  if (item.kind === "image") {
+    return item.url ? `[Image] ${item.url}` : "[Image message]";
+  }
+
+  if (item.kind === "video") {
+    const parts = ["[Video]"];
+    if (item.fileName) parts.push(`name=${item.fileName}`);
+    if (item.url) parts.push(`video=${item.url}`);
+    if (item.snapshotUrl) parts.push(`snapshot=${item.snapshotUrl}`);
+    if (item.size) parts.push(`size=${item.size}`);
+    return parts.join(" ");
+  }
+
+  const parts = ["[File]"];
+  if (item.fileName) parts.push(`name=${item.fileName}`);
+  if (item.mimeType) parts.push(`type=${item.mimeType}`);
+  if (item.url) parts.push(`url=${item.url}`);
+  if (item.size) parts.push(`size=${item.size}`);
+  return parts.join(" ");
+}
+
+function mergeInboundResults(parts: Array<InboundBodyResult | null | undefined>): InboundBodyResult {
+  const valid = parts.filter(Boolean) as InboundBodyResult[];
+  if (valid.length === 0) return { body: "", kind: "unknown" };
+
+  const bodies = valid.map((item) => item.body).filter(Boolean);
+  const media = valid.flatMap((item) => item.media ?? []);
+  if (valid.length === 1) {
     return {
-      body: `[Quote] ${quotedSender}: ${quotedBody}`,
-      kind: "mixed",
+      body: bodies[0] || "",
+      kind: valid[0].kind,
+      media: media.length > 0 ? media : undefined,
     };
   }
 
-  const text = String(msg.textElem?.content ?? msg.atTextElem?.text ?? "").trim();
-  if (text) return { body: text, kind: "text" };
+  return {
+    body: bodies.join("\n"),
+    kind: "mixed",
+    media: media.length > 0 ? media : undefined,
+  };
+}
 
+async function fetchImageAsContentPart(url: string, hintedMimeType?: string): Promise<ImagePart> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`image fetch timeout after ${IMAGE_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw new Error(`image fetch failed: ${response.status} ${response.statusText}`);
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > MAX_IMAGE_BYTES) {
+    throw new Error(`image too large: ${contentLength} bytes`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`image too large: ${buffer.byteLength} bytes`);
+  }
+
+  const mimeType = normalizeImageMimeType(response.headers.get("content-type")) ?? normalizeImageMimeType(hintedMimeType) ?? "image/jpeg";
+  return {
+    type: "image",
+    data: buffer.toString("base64"),
+    mimeType,
+  };
+}
+
+function buildTextEnvelope(
+  runtime: any,
+  cfg: any,
+  fromLabel: string,
+  senderId: string,
+  timestamp: number,
+  bodyText: string,
+  chatType: ChatType
+): string {
+  const envelopeOptions = runtime.channel.reply?.resolveEnvelopeFormatOptions?.(cfg) ?? {};
+  const formatted = runtime.channel.reply?.formatInboundEnvelope?.({
+    channel: "OpenIM",
+    from: fromLabel,
+    timestamp,
+    body: bodyText,
+    chatType,
+    sender: { name: fromLabel, id: senderId },
+    envelope: envelopeOptions,
+  });
+  return typeof formatted === "string" ? formatted : bodyText;
+}
+
+async function materializeInboundMedia(media: InboundMediaItem[] | undefined): Promise<{ images: ImagePart[]; warnings: string[] }> {
+  if (!Array.isArray(media) || media.length === 0) {
+    return { images: [], warnings: [] };
+  }
+
+  const images: ImagePart[] = [];
+  const warnings: string[] = [];
+
+  for (const item of media) {
+    try {
+      if (item.kind === "image" && item.url) {
+        images.push(await fetchImageAsContentPart(item.url, item.mimeType));
+        continue;
+      }
+
+      if (item.kind === "video" && item.snapshotUrl) {
+        images.push(await fetchImageAsContentPart(item.snapshotUrl));
+        continue;
+      }
+    } catch (err) {
+      warnings.push(`${summarizeMedia(item)} => ${formatSdkError(err)}`);
+    }
+  }
+
+  return { images, warnings };
+}
+
+function extractPictureMedia(msg: MessageItem): InboundMediaItem[] {
   const pic = msg.pictureElem;
-  if (pic) {
-    const imageUrl = pic.sourcePicture?.url || pic.bigPicture?.url || pic.snapshotPicture?.url || "";
-    const imageBody = imageUrl ? `[Image] ${imageUrl}` : "[Image message]";
-    return { body: imageBody, kind: "image" };
+  if (!pic) return [];
+  const source = pic.sourcePicture;
+  const big = pic.bigPicture;
+  const snapshot = pic.snapshotPicture;
+  const url = normalizeString(source?.url) || normalizeString(big?.url) || normalizeString(snapshot?.url);
+  const mimeType = normalizeImageMimeType(source?.type) || normalizeImageMimeType(big?.type) || normalizeImageMimeType(snapshot?.type);
+  return [{ kind: "image", url, mimeType }];
+}
+
+function extractVideoMedia(msg: MessageItem): InboundMediaItem[] {
+  const video = msg.videoElem as any;
+  if (!video) return [];
+  return [
+    {
+      kind: "video",
+      url: normalizeString(video.videoUrl),
+      snapshotUrl: normalizeString(video.snapshotUrl),
+      fileName: normalizeString(video.videoName ?? video.fileName ?? video.snapshotName),
+      size: normalizeSize(video.videoSize ?? video.duration),
+      mimeType: normalizeMimeType(video.videoType ?? video.type),
+    },
+  ];
+}
+
+function extractFileMedia(msg: MessageItem): InboundMediaItem[] {
+  const file = msg.fileElem as any;
+  if (!file) return [];
+  return [
+    {
+      kind: "file",
+      url: normalizeString(file.sourceUrl),
+      fileName: normalizeString(file.fileName),
+      size: normalizeSize(file.fileSize),
+      mimeType: normalizeMimeType(file.fileType ?? file.type),
+    },
+  ];
+}
+
+function extractInboundBody(msg: MessageItem, depth = 0): InboundBodyResult {
+  const text = String(msg.textElem?.content ?? msg.atTextElem?.text ?? "").trim();
+  const imageMedia = extractPictureMedia(msg);
+  const videoMedia = extractVideoMedia(msg);
+  const fileMedia = extractFileMedia(msg);
+
+  if (msg.quoteElem?.quoteMessage) {
+    const quotedMsg = msg.quoteElem.quoteMessage;
+    const quotedSender = String(quotedMsg.senderNickname || quotedMsg.sendID || "unknown");
+    const quoted = depth < 2 ? extractInboundBody(quotedMsg, depth + 1) : { body: "[quoted message]", kind: "mixed" as const };
+    const currentParts: string[] = [];
+    if (text) currentParts.push(`Reply: ${text}`);
+    for (const item of [...imageMedia, ...videoMedia, ...fileMedia]) {
+      currentParts.push(`Reply attachment: ${summarizeMedia(item)}`);
+    }
+
+    const bodyLines = [`[Quote] ${quotedSender}: ${quoted.body || "[empty message]"}`];
+    if (currentParts.length > 0) bodyLines.push(currentParts.join("\n"));
+
+    return {
+      body: bodyLines.join("\n"),
+      kind: currentParts.length > 0 ? "mixed" : quoted.kind,
+      media: [...imageMedia, ...videoMedia, ...fileMedia],
+    };
   }
 
-  const video = msg.videoElem;
-  if (video) {
-    const url = video.videoUrl || "";
-    const snapshotUrl = video.snapshotUrl || "";
-    const parts = ["[Video]"];
-    if (url) parts.push(`video=${url}`);
-    if (snapshotUrl) parts.push(`snapshot=${snapshotUrl}`);
-    return { body: parts.join(" "), kind: "video" };
-  }
+  const parts: InboundBodyResult[] = [];
+  if (text) parts.push({ body: text, kind: "text" });
 
-  const file = msg.fileElem;
-  if (file) {
-    const parts = ["[File]"];
-    if (file.fileName) parts.push(`name=${file.fileName}`);
-    if (file.sourceUrl) parts.push(`url=${file.sourceUrl}`);
-    if (file.fileSize) parts.push(`size=${file.fileSize}`);
-    return { body: parts.join(" "), kind: "file" };
+  for (const item of imageMedia) {
+    parts.push({ body: summarizeMedia(item), kind: "image", media: [item] });
+  }
+  for (const item of videoMedia) {
+    parts.push({ body: summarizeMedia(item), kind: "video", media: [item] });
+  }
+  for (const item of fileMedia) {
+    parts.push({ body: summarizeMedia(item), kind: "file", media: [item] });
   }
 
   if (msg.customElem?.data || msg.customElem?.description || msg.customElem?.extension) {
     const customText = msg.customElem.description || msg.customElem.data || msg.customElem.extension || "[Custom message]";
-    return { body: `[Custom message] ${customText}`, kind: "mixed" };
+    parts.push({ body: `[Custom message] ${customText}`, kind: "mixed" });
   }
 
-  return { body: "", kind: "unknown" };
+  return mergeInboundResults(parts);
 }
 
 function shouldProcessInboundMessage(accountId: string, msg: MessageItem): boolean {
@@ -148,7 +333,6 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
       accountId: client.config.accountId,
     }) ?? { agentId: "main", sessionKey: baseSessionKey };
 
-  // Use router-resolved session key so history aligns with Control UI session namespaces.
   const sessionKey = String(route?.sessionKey ?? baseSessionKey).trim() || baseSessionKey;
 
   const storePath =
@@ -158,22 +342,22 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
 
   const chatType: ChatType = group ? "group" : "direct";
   const fromLabel = String(msg.senderNickname || msg.sendID);
-  const envelopeOptions = runtime.channel.reply?.resolveEnvelopeFormatOptions?.(cfg) ?? {};
+  const senderId = String(msg.sendID);
+  const timestamp = msg.sendTime || Date.now();
+  const mediaResult = await materializeInboundMedia(inbound.media);
+  const warningText = mediaResult.warnings.map((warning) => `[Media fetch failed] ${warning}`).join("\n");
+  const rawBody = warningText ? `${inbound.body}\n${warningText}` : inbound.body;
+  const body = buildTextEnvelope(runtime, cfg, fromLabel, senderId, timestamp, rawBody, chatType);
 
-  const body =
-    runtime.channel.reply?.formatInboundEnvelope?.({
-      channel: "OpenIM",
-      from: fromLabel,
-      timestamp: msg.sendTime || Date.now(),
-      body: inbound.body,
-      chatType,
-      sender: { name: fromLabel, id: String(msg.sendID) },
-      envelope: envelopeOptions,
-    }) ?? { content: [{ type: "text", text: inbound.body }] };
+  if (mediaResult.warnings.length > 0) {
+    for (const warning of mediaResult.warnings) {
+      api.logger?.warn?.(`[openim] inbound media fetch failed: ${warning}`);
+    }
+  }
 
   const ctxPayload = {
     Body: body,
-    RawBody: inbound.body,
+    RawBody: rawBody,
     From: group ? `openim:group:${msg.groupID}` : `openim:${msg.sendID}`,
     To: `openim:${client.config.userID}`,
     SessionKey: sessionKey,
@@ -181,20 +365,21 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
     ChatType: chatType,
     ConversationLabel: fromLabel,
     SenderName: fromLabel,
-    SenderId: String(msg.sendID),
+    SenderId: senderId,
     Provider: "openim",
     Surface: "openim",
     MessageSid: msg.clientMsgID || `openim-${Date.now()}`,
-    Timestamp: msg.sendTime || Date.now(),
+    Timestamp: timestamp,
     OriginatingChannel: "openim",
     OriginatingTo: `openim:${client.config.userID}`,
     CommandAuthorized: true,
     _openim: {
       accountId: client.config.accountId,
       isGroup: group,
-      senderId: String(msg.sendID),
+      senderId,
       groupId: String(msg.groupID || ""),
       messageKind: inbound.kind,
+      mediaCount: inbound.media?.length ?? 0,
     },
   };
 
@@ -240,7 +425,10 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
           api.logger?.error?.(`[openim] ${info?.kind || "reply"} failed: ${String(err)}`);
         },
       },
-      replyOptions: { disableBlockStreaming: true },
+      replyOptions: {
+        disableBlockStreaming: true,
+        images: mediaResult.images,
+      },
     });
   } catch (err: any) {
     api.logger?.error?.(`[openim] dispatch failed: ${formatSdkError(err)}`);

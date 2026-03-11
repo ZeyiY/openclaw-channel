@@ -29,7 +29,17 @@ export interface ParsedTarget {
   id: string;
 }
 
+export interface InboundMediaItem {
+  kind: "image" | "video" | "file";
+  url?: string;
+  mimeType?: string;
+  fileName?: string;
+  size?: number;
+  snapshotUrl?: string;
+}
+
 export interface InboundBodyResult {
   body: string;
   kind: "text" | "image" | "video" | "file" | "mixed" | "unknown";
+  media?: InboundMediaItem[];
 }
