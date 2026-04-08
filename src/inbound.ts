@@ -284,6 +284,21 @@ function isWhitelistedSender(client: OpenIMClientState, msg: MessageItem): boole
   return whitelist.some((id) => id === senderId);
 }
 
+function shouldIgnoreSelfSentMessage(client: OpenIMClientState, msg: MessageItem): boolean {
+  const selfUserID = String(client.config.userID);
+  if (String(msg.sendID) !== selfUserID) return false;
+
+  // Allow direct self-chat messages only when they come from another platform.
+  const isDirectSelfChat = msg.sessionType !== SessionType.Group && String((msg as any).recvID) === selfUserID;
+  if (!isDirectSelfChat) return true;
+
+  const localPlatformID = Number(client.config.platformID);
+  const senderPlatformID = Number((msg as any).senderPlatformID);
+  if (!Number.isFinite(localPlatformID) || !Number.isFinite(senderPlatformID)) return true;
+
+  return localPlatformID === senderPlatformID;
+}
+
 async function sendReplyFromInbound(client: OpenIMClientState, msg: MessageItem, text: string): Promise<void> {
   const isGroup = isGroupMessage(msg);
   const target: ParsedTarget = isGroup ? { kind: "group", id: String(msg.groupID) } : { kind: "user", id: String(msg.sendID) };
@@ -297,7 +312,7 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
     return;
   }
 
-  if (String(msg.sendID) === String(client.config.userID)) {
+  if (shouldIgnoreSelfSentMessage(client, msg)) {
     return;
   }
   if (!shouldProcessInboundMessage(client.config.accountId, msg)) {

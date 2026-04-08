@@ -76,6 +76,18 @@ export async function startAccountClient(api: any, config: OpenIMAccountConfig):
   }
 }
 
+export async function stopAccountClient(api: any, accountId: string): Promise<void> {
+  const state = clients.get(accountId);
+  if (!state) return;
+  clients.delete(accountId);
+  detachHandlers(state);
+  try {
+    await state.sdk.logout();
+  } catch (e: any) {
+    api.logger?.warn?.(`[openim] account ${accountId} logout failed: ${formatSdkError(e)}`);
+  }
+}
+
 export async function stopAllClients(api: any): Promise<void> {
   const items = Array.from(clients.values());
   clients.clear();

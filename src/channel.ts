@@ -1,5 +1,5 @@
-import { getConnectedClient } from "./clients";
-import { listAccountIds, resolveAccountConfig } from "./config";
+import { getConnectedClient, startAccountClient, stopAccountClient } from "./clients";
+import { listAccountIds, resolveAccountConfig, getOpenIMAccountConfig } from "./config";
 import { sendTextToTarget } from "./media";
 import { parseTarget } from "./targets";
 import { formatSdkError } from "./utils";
@@ -20,6 +20,28 @@ export const OpenIMChannelPlugin = {
   config: {
     listAccountIds: (cfg: any) => listAccountIds(cfg),
     resolveAccount: (cfg: any, accountId?: string) => resolveAccountConfig(cfg, accountId),
+  },
+  gateway: {
+    startAccount: async (ctx: any) => {
+      const api = (globalThis as any).__openimApi;
+      if (!api) {
+        ctx.log?.error?.("[openim] api not initialized");
+        return;
+      }
+      const config = getOpenIMAccountConfig(ctx.cfg ?? api.config, ctx.accountId);
+      if (!config || !config.enabled) return;
+      if (!getConnectedClient(ctx.accountId)) {
+        await startAccountClient(api, config);
+      }
+      await new Promise<void>((resolve) => {
+        if (ctx.abortSignal?.aborted) {
+          resolve();
+        } else {
+          ctx.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+        }
+      });
+      await stopAccountClient(api, ctx.accountId);
+    },
   },
   outbound: {
     deliveryMode: "direct" as const,
