@@ -1,9 +1,12 @@
 {
-  "name": "@openim/openclaw-channel",
-  "version": "0.3.3",
+  "name": "@zongzi1993/openclaw-channel",
+  "version": "0.3.4",
   "description": "OpenIM channel plugin for OpenClaw gateway",
   "license": "AGPL-3.0-only",
   "author": "blooming",
+  "contributors": [
+    "zongzi"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openimsdk/openclaw-channel.git"

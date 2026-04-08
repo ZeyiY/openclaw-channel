@@ -270,6 +270,9 @@ function isGroupMessage(msg: MessageItem): boolean {
 }
 
 function isMentionedInGroup(msg: MessageItem, selfUserID: string): boolean {
+  // Use SDK-provided isAtSelf flag (most reliable, computed server-side)
+  if (msg.atTextElem?.isAtSelf === true) return true;
+  // Fallback: check atUserList manually
   const list = msg.atTextElem?.atUserList;
   if (!Array.isArray(list) || list.length === 0) return false;
   const id = String(selfUserID);
@@ -313,11 +316,18 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
   }
 
   if (shouldIgnoreSelfSentMessage(client, msg)) {
+    api.logger?.debug?.(`[openim] ignore self-sent message: clientMsgID=${msg.clientMsgID || "unknown"}`);
     return;
   }
   if (!shouldProcessInboundMessage(client.config.accountId, msg)) {
+    api.logger?.debug?.(`[openim] ignore duplicate message: clientMsgID=${msg.clientMsgID || "unknown"}`);
     return;
   }
+
+  const group = isGroupMessage(msg);
+  api.logger?.debug?.(
+    `[openim] inbound message: sessionType=${msg.sessionType}, contentType=${msg.contentType}, group=${group}, groupID=${msg.groupID || ""}, sendID=${msg.sendID}, clientMsgID=${msg.clientMsgID || "unknown"}`
+  );
 
   const inbound = extractInboundBody(msg);
   if (!inbound.body) {
@@ -327,13 +337,19 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
     return;
   }
 
-  const group = isGroupMessage(msg);
   const mentioned = group && isMentionedInGroup(msg, client.config.userID);
   const hasWhitelist = client.config.inboundWhitelist.length > 0;
   if (hasWhitelist) {
-    if (!isWhitelistedSender(client, msg)) return;
-    if (group && !mentioned) return;
+    if (!isWhitelistedSender(client, msg)) {
+      api.logger?.debug?.(`[openim] ignore message: sender ${msg.sendID} not in whitelist`);
+      return;
+    }
+    if (group && !mentioned) {
+      api.logger?.debug?.(`[openim] ignore group message: bot not mentioned (whitelist mode), groupID=${msg.groupID}`);
+      return;
+    }
   } else if (group && client.config.requireMention && !mentioned) {
+    api.logger?.debug?.(`[openim] ignore group message: requireMention=true but bot not mentioned, groupID=${msg.groupID}`);
     return;
   }
 
