@@ -1,10 +1,17 @@
 import type { MessageItem } from "@openim/client-sdk";
 import { File } from "node:buffer";
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import { getRecvAndGroupID } from "./targets";
 import type { OpenIMClientState, ParsedTarget } from "./types";
+
+/** 调试日志：写入 /tmp/openim-debug.log，方便排查问题 */
+function debugLog(msg: string): void {
+  const line = `${new Date().toISOString()} [openim-debug] ${msg}\n`;
+  try { appendFileSync("/tmp/openim-debug.log", line); } catch {}
+}
 
 function isUrl(input: string): boolean {
   return /^https?:\/\//i.test(input.trim());
@@ -68,18 +75,52 @@ async function readLocalAsFile(pathInput: string, forcedName?: string): Promise<
 }
 
 export async function sendTextToTarget(client: OpenIMClientState, target: ParsedTarget, text: string): Promise<void> {
-  const created = await client.sdk.createTextMessage(text);
-  const message = created?.data;
-  if (!message) throw new Error("createTextMessage failed");
-
   const recvID = target.kind === "user" ? target.id : "";
   const groupID = target.kind === "group" ? target.id : "";
 
-  await client.sdk.sendMessage({
-    recvID,
-    groupID,
-    message,
-  });
+  let message: MessageItem | undefined;
+
+  // 群聊场景：解析文本中的 @提及，构造 at 消息
+  if (target.kind === "group") {
+    // 统一 <@ID> 和 @ID 两种格式，收集去重后的被 @ 用户 ID
+    const atIDs = new Set<string>();
+    let normalizedText = text.replace(/<@(\d{6,})>/g, (_match, id) => { atIDs.add(id); return `@${id}`; });
+    for (const m of normalizedText.matchAll(/@(\d{6,})/g)) atIDs.add(m[1]);
+
+    if (atIDs.size > 0) {
+      const atUserIDList = [...atIDs];
+      // 默认用 ID 作为昵称，后续尝试查询真实群昵称
+      let atUsersInfo = atUserIDList.map((id) => ({ atUserID: id, groupNickname: id }));
+      try {
+        // 查询被 @ 用户在群内的昵称信息
+        const membersRes = await client.sdk.getSpecifiedGroupMembersInfo({ groupID: target.id, userIDList: atUserIDList });
+        if (membersRes?.data) {
+          const nickMap = new Map(membersRes.data.map((m: any) => [m.userID, m.nickname || m.groupNickname || m.userID]));
+          atUsersInfo = atUserIDList.map((id) => ({ atUserID: id, groupNickname: (nickMap.get(id) as string) || id }));
+        }
+      } catch (e) {
+        debugLog(`getSpecifiedGroupMembersInfo failed: ${e}`);
+      }
+
+      debugLog(`atMsg group=${target.id} users=${JSON.stringify(atUsersInfo)}`);
+      try {
+        // 创建带 @提及 的文本消息
+        const created = await client.sdk.createTextAtMessage({ text: normalizedText, atUserIDList, atUsersInfo });
+        message = created?.data;
+      } catch (e) {
+        debugLog(`createTextAtMessage failed: ${e}`);
+      }
+    }
+  }
+
+  // 如果不是 at 消息或 at 消息创建失败，回退为普通文本消息
+  if (!message) {
+    const created = await client.sdk.createTextMessage(text);
+    message = created?.data;
+    if (!message) throw new Error("createTextMessage failed");
+  }
+
+  await client.sdk.sendMessage({ recvID, groupID, message });
 }
 
 export async function sendImageToTarget(client: OpenIMClientState, target: ParsedTarget, image: string): Promise<void> {

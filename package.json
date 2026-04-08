@@ -1,5 +1,5 @@
 {
-  "name": "@zongzi1993/openclaw-channel",
+  "name": "@openim/openclaw-channel",
   "version": "0.3.4",
   "description": "OpenIM channel plugin for OpenClaw gateway",
   "license": "AGPL-3.0-only",
