@@ -1,7 +1,14 @@
 import { SessionType, type MessageItem } from "@openim/client-sdk";
+import { appendFileSync } from "node:fs";
 import { sendTextToTarget } from "./media";
 import type { ChatType, InboundBodyResult, InboundMediaItem, OpenIMClientState, ParsedTarget } from "./types";
 import { formatSdkError } from "./utils";
+
+/** 写入 /tmp/openim-debug.log，用于排查消息路由问题 */
+function debugLog(msg: string): void {
+  const ts = new Date().toISOString();
+  try { appendFileSync("/tmp/openim-debug.log", `${ts} ${msg}\n`); } catch {}
+}
 
 const inboundDedup = new Map<string, number>();
 const INBOUND_DEDUP_TTL_MS = 5 * 60 * 1000;
@@ -353,7 +360,8 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
     return;
   }
 
-  const baseSessionKey = group ? `openim:group:${msg.groupID}`.toLowerCase() : `openim:${msg.sendID}`.toLowerCase();
+  // 会话隔离：群聊按 groupID 分 session，私聊按发送者 ID 分 session
+  const baseSessionKey = group ? `openim:group:${msg.groupID}`.toLowerCase() : `openim:dm:${msg.sendID}`.toLowerCase();
   const cfg = api.config;
 
   const route =
@@ -364,7 +372,10 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
       accountId: client.config.accountId,
     }) ?? { agentId: "main", sessionKey: baseSessionKey };
 
-  const sessionKey = String(route?.sessionKey ?? baseSessionKey).trim() || baseSessionKey;
+  // 将来源信息附加到路由 key 上，防止不同群/不同用户的会话被合并
+  const routeSessionKey = String(route?.sessionKey ?? "").trim();
+  const sessionKey = routeSessionKey ? `${routeSessionKey}:${baseSessionKey}` : baseSessionKey;
+  debugLog(`[route] ${group ? "群聊" : "私聊"} from=${msg.sendID} group=${msg.groupID || "-"} session=${sessionKey} agent=${route.agentId}`);
 
   const storePath =
     runtime.channel.session?.resolveStorePath?.(cfg?.session?.store, {
@@ -394,7 +405,7 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
     SessionKey: sessionKey,
     AccountId: client.config.accountId,
     ChatType: chatType,
-    ConversationLabel: fromLabel,
+    ConversationLabel: group ? `openim:g-${msg.groupID}` : `openim:${senderId}`, // 会话标签：群聊用群ID，私聊用用户ID
     SenderName: fromLabel,
     SenderId: senderId,
     Provider: "openim",
