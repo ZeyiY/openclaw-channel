@@ -315,6 +315,22 @@ async function sendReplyFromInbound(client: OpenIMClientState, msg: MessageItem,
   await sendTextToTarget(client, target, text);
 }
 
+/**
+ * 标记私聊会话为已读。
+ * conversationID 格式：si_{自己的userID}_{对方的userID}
+ */
+async function markDirectMessageAsRead(client: OpenIMClientState, msg: MessageItem): Promise<void> {
+  const selfID = client.config.userID;
+  const peerID = String(msg.sendID);
+  const conversationID = `si_${selfID}_${peerID}`;
+  try {
+    await client.sdk.markConversationMessageAsRead(conversationID);
+    debugLog(`[已读] 私聊已标记已读 conversation=${conversationID}`);
+  } catch (e) {
+    debugLog(`[已读] 标记已读失败 conversation=${conversationID} error=${e}`);
+  }
+}
+
 export async function processInboundMessage(api: any, client: OpenIMClientState, msg: MessageItem): Promise<void> {
   const runtime = api.runtime;
   if (!runtime?.channel?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
@@ -335,6 +351,11 @@ export async function processInboundMessage(api: any, client: OpenIMClientState,
   api.logger?.debug?.(
     `[openim] inbound message: sessionType=${msg.sessionType}, contentType=${msg.contentType}, group=${group}, groupID=${msg.groupID || ""}, sendID=${msg.sendID}, clientMsgID=${msg.clientMsgID || "unknown"}`
   );
+
+  // 私聊消息：标记为已读，让对方看到已读回执
+  if (!group) {
+    markDirectMessageAsRead(client, msg).catch(() => {});
+  }
 
   const inbound = extractInboundBody(msg);
   if (!inbound.body) {
