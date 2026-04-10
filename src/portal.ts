@@ -242,25 +242,23 @@ async function handleAgentsFilesList(
   for (const name of AGENT_FILE_NAMES) {
     const filePath = join(workspaceDir, name);
     const meta = await statFileSafely(filePath);
+    if (!meta) continue;
 
-    if (meta) {
-      let content: string | undefined;
-      try {
-        content = await readFile(filePath, "utf-8");
-      } catch {
-        // skip unreadable files
-      }
-      files.push({
-        name,
-        path: filePath,
-        missing: false,
-        size: meta.size,
-        updatedAtMs: meta.updatedAtMs,
-        content,
-      });
-    } else {
-      files.push({ name, path: filePath, missing: true });
+    let content: string | undefined;
+    try {
+      content = await readFile(filePath, "utf-8");
+    } catch {
+      // skip unreadable files
+      continue;
     }
+    files.push({
+      name,
+      path: filePath,
+      missing: false,
+      size: meta.size,
+      updatedAtMs: meta.updatedAtMs,
+      content,
+    });
   }
 
   portalLog(api, "info", `agents.files.list: agentId=${agentId} workspace=${workspaceDir} found=${files.filter(f => !f.missing).length}`);
@@ -412,17 +410,51 @@ async function handleAgentsCreate(
   return { ok: true, agentId, name: rawName, workspace: workspaceDir };
 }
 
+/**
+ * bot.agent.get — resolve the agentId bound to the current bot connection.
+ *
+ * Lookup order:
+ * 1. Config bindings: match channel=openim + accountId
+ * 2. Fallback to default agent
+ */
+function handleBotAgentGet(api: any, accountId: string): { agentId: string; name?: string } {
+  const cfg = getConfig(api);
+  const agents = Array.isArray(cfg.agents?.list) ? cfg.agents.list : [];
+
+  // 1. Check bindings
+  const bindings = Array.isArray(cfg.bindings) ? cfg.bindings : [];
+  for (const b of bindings) {
+    if (
+      b?.match?.channel === "openim" &&
+      b?.match?.accountId === accountId &&
+      b?.agentId
+    ) {
+      const agentId = normalizeAgentId(b.agentId);
+      const entry = agents.find((a: any) => a?.id && normalizeAgentId(a.id) === agentId);
+      return { agentId, ...(entry?.name ? { name: entry.name } : {}) };
+    }
+  }
+
+  // 2. Fallback to default agent
+  const defaultId = resolveDefaultAgentId(cfg);
+  const defaultEntry = agents.find((a: any) => a?.id && normalizeAgentId(a.id) === defaultId);
+  return { agentId: defaultId, ...(defaultEntry?.name ? { name: defaultEntry.name } : {}) };
+}
+
 // ---------------------------------------------------------------------------
 // Request dispatch
 // ---------------------------------------------------------------------------
 
-async function handlePortalRequest(api: any, request: PortalRequest): Promise<PortalResponse> {
+async function handlePortalRequest(api: any, accountId: string, request: PortalRequest): Promise<PortalResponse> {
   const { id, method, params } = request;
-  portalLog(api, "info", `request received: id=${id} method=${method} params=${JSON.stringify(params)}`);
+  portalLog(api, "info", `request received: id=${id} method=${method} params=${JSON.stringify(params)} accountId=${accountId}`);
 
   try {
     let result: unknown;
     switch (method) {
+      case "bot.agent.get":
+        result = handleBotAgentGet(api, accountId);
+        break;
       case "models.list":
         result = handleModelsList(api, params ?? {});
         break;
@@ -521,7 +553,7 @@ function connectPortal(api: any, bridge: PortalBridgeState): void {
       return;
     }
 
-    const response = await handlePortalRequest(api, request);
+    const response = await handlePortalRequest(api, bridge.accountId, request);
     sendResponse(ws, response);
     portalLog(api, "debug", `response sent: id=${request.id} method=${request.method} ok=${!response.error}`);
   });

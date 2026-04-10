@@ -49,6 +49,7 @@ export interface InboundBodyResult {
 // Portal Bridge types
 
 export type PortalMethod =
+  | "bot.agent.get"
   | "models.list"
   | "agents.list"
   | "agents.files.list"

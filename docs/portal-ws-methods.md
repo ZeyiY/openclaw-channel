@@ -56,7 +56,44 @@ All messages are JSON text frames, using a JSON-RPC style format.
 
 ## Methods
 
-### 1. `models.list`
+### 1. `bot.agent.get`
+
+Returns the agentId bound to the current bot's WebSocket connection.
+
+The lookup order:
+1. Config `bindings` where `channel=openim` and `accountId` matches
+2. Fallback to the default agent
+
+**Request:**
+```json
+{
+  "id": "req-000",
+  "method": "bot.agent.get",
+  "params": {}
+}
+```
+
+No parameters required — the agent is resolved from the connection's accountId.
+
+**Response:**
+```json
+{
+  "id": "req-000",
+  "result": {
+    "agentId": "coder",
+    "name": "coder"
+  }
+}
+```
+
+| field | type | required | description |
+|-------|------|----------|-------------|
+| agentId | string | yes | the agent ID bound to this bot |
+| name | string | no | agent display name |
+
+---
+
+### 2. `models.list`
 
 Returns the list of models configured in the local openclaw instance, with the active model marked for the given agent.
 
@@ -117,7 +154,7 @@ Returns the list of models configured in the local openclaw instance, with the a
 
 ---
 
-### 2. `agents.list`
+### 3. `agents.list`
 
 Returns all configured agents.
 
@@ -187,7 +224,7 @@ Returns all configured agents.
 
 ---
 
-### 3. `agents.files.list`
+### 4. `agents.files.list`
 
 Lists all well-known workspace files for an agent, **including file content**.
 
@@ -255,7 +292,7 @@ Well-known files: `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, 
 
 ---
 
-### 4. `agents.files.get`
+### 5. `agents.files.get`
 
 Get a single file's content from an agent's workspace.
 
@@ -320,7 +357,7 @@ Get a single file's content from an agent's workspace.
 
 ---
 
-### 5. `agents.files.set`
+### 6. `agents.files.set`
 
 Write or overwrite a file in an agent's workspace. Creates parent directories if needed.
 
@@ -372,7 +409,7 @@ Write or overwrite a file in an agent's workspace. Creates parent directories if
 
 ---
 
-### 6. `agents.create`
+### 7. `agents.create`
 
 Create a new agent with a workspace directory and IDENTITY.md file.
 
@@ -424,7 +461,7 @@ Create a new agent with a workspace directory and IDENTITY.md file.
 
 ---
 
-### 7. `ping`
+### 8. `ping`
 
 Heartbeat check. Portal sends a ping every 30 seconds automatically. Agent-portal can also send pings.
 
