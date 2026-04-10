@@ -71,9 +71,25 @@
                 "type": "string"
               },
               "default": []
+            },
+            "botId": {
+              "type": "string",
+              "description": "Unique bot identifier for agent-portal WebSocket connection"
+            },
+            "portalWsAddr": {
+              "type": "string",
+              "description": "Agent-portal WebSocket endpoint, e.g. wss://portal.example.com/ws"
             }
           }
         }
+      },
+      "botId": {
+        "type": "string",
+        "description": "Unique bot identifier for agent-portal WebSocket connection"
+      },
+      "portalWsAddr": {
+        "type": "string",
+        "description": "Agent-portal WebSocket endpoint, e.g. wss://portal.example.com/ws"
       }
     }
   },

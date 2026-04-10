@@ -56,6 +56,9 @@ function envDefaultAccount(): Record<string, unknown> | null {
   const platformID = toFiniteNumber(process.env.OPENIM_PLATFORM_ID ?? hints.platformID, 5);
   if (!userID) return null;
 
+  const botId = String(process.env.OPENIM_BOT_ID ?? "").trim() || undefined;
+  const portalWsAddr = String(process.env.OPENIM_PORTAL_WS_ADDR ?? "").trim() || undefined;
+
   return {
     userID,
     token,
@@ -64,6 +67,8 @@ function envDefaultAccount(): Record<string, unknown> | null {
     platformID,
     enabled: true,
     requireMention: true,
+    botId,
+    portalWsAddr,
   };
 }
 
@@ -91,6 +96,8 @@ function normalizeAccount(accountId: string, raw: any): OpenIMAccountConfig | nu
   const enabled = raw.enabled !== false;
   const requireMention = raw.requireMention !== false;
   const inboundWhitelist = normalizeInboundWhitelist(raw.inboundWhitelist);
+  const botId = String(raw.botId ?? "").trim() || undefined;
+  const portalWsAddr = String(raw.portalWsAddr ?? "").trim() || undefined;
 
   if (!userID) return null;
 
@@ -104,6 +111,8 @@ function normalizeAccount(accountId: string, raw: any): OpenIMAccountConfig | nu
     platformID,
     requireMention,
     inboundWhitelist,
+    botId,
+    portalWsAddr,
   };
 }
 

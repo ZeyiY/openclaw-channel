@@ -1,5 +1,6 @@
 import { CbEvents, getSDK, type CallbackEvent, type MessageItem } from "@openim/client-sdk";
 import { processInboundMessage } from "./inbound";
+import { startPortalBridge, stopPortalBridge, stopAllPortalBridges } from "./portal";
 import type { OpenIMAccountConfig, OpenIMClientState } from "./types";
 import { formatSdkError } from "./utils";
 
@@ -70,6 +71,9 @@ export async function startAccountClient(api: any, config: OpenIMAccountConfig):
     });
     clients.set(config.accountId, state);
     api.logger?.info?.(`[openim] account ${config.accountId} connected`);
+
+    // Start portal bridge after successful OpenIM login
+    startPortalBridge(api, config);
   } catch (e: any) {
     detachHandlers(state);
     api.logger?.error?.(`[openim] account ${config.accountId} login failed: ${formatSdkError(e)}`);
@@ -77,6 +81,9 @@ export async function startAccountClient(api: any, config: OpenIMAccountConfig):
 }
 
 export async function stopAccountClient(api: any, accountId: string): Promise<void> {
+  // Stop portal bridge before disconnecting OpenIM
+  stopPortalBridge(api, accountId);
+
   const state = clients.get(accountId);
   if (!state) return;
   clients.delete(accountId);
@@ -89,6 +96,9 @@ export async function stopAccountClient(api: any, accountId: string): Promise<vo
 }
 
 export async function stopAllClients(api: any): Promise<void> {
+  // Stop all portal bridges first
+  stopAllPortalBridges(api);
+
   const items = Array.from(clients.values());
   clients.clear();
 
