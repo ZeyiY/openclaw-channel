@@ -1,8 +1,10 @@
-# @openim/openclaw-channel
+# @zeyiy/openclaw-channel
 
 OpenIM channel plugin for OpenClaw Gateway.
 
-Chinese documentation: [README.zh-CN.md](https://github.com/openimsdk/openclaw-channel/blob/main/README.zh-CN.md)
+> Forked from [@openim/openclaw-channel](https://github.com/openimsdk/openclaw-channel). Licensed under AGPL-3.0-only.
+
+Chinese documentation: [README.zh-CN.md](https://github.com/ZeyiY/openclaw-channel/blob/main/README.zh-CN.md)
 
 ## Features
 
@@ -19,7 +21,7 @@ Chinese documentation: [README.zh-CN.md](https://github.com/openimsdk/openclaw-c
 Install from npm:
 
 ```bash
-openclaw plugins install @openim/openclaw-channel
+openclaw plugins install @zeyiy/openclaw-channel
 ```
 
 Or install from local path:
@@ -28,11 +30,11 @@ Or install from local path:
 openclaw plugins install /path/to/openclaw-channel
 ```
 
-Repository: https://github.com/openimsdk/openclaw-channel
+Repository: https://github.com/ZeyiY/openclaw-channel
 
 ## Identity Mapping
 
-- npm package name: `@openim/openclaw-channel`
+- npm package name: `@zeyiy/openclaw-channel`
 - plugin id: `openclaw-channel` (used in `plugins.entries` and `plugins.allow`)
 - channel id: `openim` (used in `channels.openim`)
 - setup command: `openclaw openim setup`
@@ -122,4 +124,6 @@ For `test:connect`, configure `.env` first (see `.env.example`).
 
 ## License
 
-AGPL-3.0-only. See [LICENSE](https://github.com/openimsdk/openclaw-channel/blob/main/LICENSE).
+AGPL-3.0-only. See [LICENSE](https://github.com/ZeyiY/openclaw-channel/blob/main/LICENSE).
+
+Originally developed by [openimsdk](https://github.com/openimsdk/openclaw-channel).

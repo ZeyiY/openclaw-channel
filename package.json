@@ -1,19 +1,20 @@
 {
-  "name": "@openim/openclaw-channel",
+  "name": "@zeyiy/openclaw-channel",
   "version": "0.3.4",
-  "description": "OpenIM channel plugin for OpenClaw gateway",
+  "description": "OpenIM channel plugin for OpenClaw gateway (fork of @openim/openclaw-channel)",
   "license": "AGPL-3.0-only",
-  "author": "blooming",
+  "author": "ZeyiY",
   "contributors": [
+    "blooming",
     "zongzi"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openimsdk/openclaw-channel.git"
+    "url": "git+https://github.com/ZeyiY/openclaw-channel.git"
   },
-  "homepage": "https://github.com/openimsdk/openclaw-channel#readme",
+  "homepage": "https://github.com/ZeyiY/openclaw-channel#readme",
   "bugs": {
-    "url": "https://github.com/openimsdk/openclaw-channel/issues"
+    "url": "https://github.com/ZeyiY/openclaw-channel/issues"
   },
   "type": "module",
   "main": "./dist/index.js",

@@ -1,8 +1,10 @@
-# @openim/openclaw-channel
+# @zeyiy/openclaw-channel
 
 OpenClaw Gateway 的 OpenIM 渠道插件。
 
-English documentation: [README.md](https://github.com/openimsdk/openclaw-channel/blob/main/README.md)
+> 从 [@openim/openclaw-channel](https://github.com/openimsdk/openclaw-channel) fork 而来，采用 AGPL-3.0-only 许可证。
+
+English documentation: [README.md](https://github.com/ZeyiY/openclaw-channel/blob/main/README.md)
 
 ## 功能
 
@@ -19,7 +21,7 @@ English documentation: [README.md](https://github.com/openimsdk/openclaw-channel
 从 npm 安装：
 
 ```bash
-openclaw plugins install @openim/openclaw-channel
+openclaw plugins install @zeyiy/openclaw-channel
 ```
 
 本地路径安装：
@@ -28,11 +30,11 @@ openclaw plugins install @openim/openclaw-channel
 openclaw plugins install /path/to/openclaw-channel
 ```
 
-仓库地址：https://github.com/openimsdk/openclaw-channel
+仓库地址：https://github.com/ZeyiY/openclaw-channel
 
 ## 标识说明
 
-- npm 包名：`@openim/openclaw-channel`
+- npm 包名：`@zeyiy/openclaw-channel`
 - 插件 id：`openclaw-channel`（用于 `plugins.entries` / `plugins.allow`）
 - 渠道 id：`openim`（用于 `channels.openim`）
 - 配置命令：`openclaw openim setup`
@@ -121,4 +123,6 @@ pnpm run test:connect
 
 ## 许可证
 
-本项目采用 `AGPL-3.0-only` 许可证。详见 [LICENSE](https://github.com/openimsdk/openclaw-channel/blob/main/LICENSE)。
+本项目采用 `AGPL-3.0-only` 许可证。详见 [LICENSE](https://github.com/ZeyiY/openclaw-channel/blob/main/LICENSE)。
+
+原始项目由 [openimsdk](https://github.com/openimsdk/openclaw-channel) 开发。

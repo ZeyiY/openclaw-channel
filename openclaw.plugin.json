@@ -3,7 +3,7 @@
   "name": "OpenIM Channel",
   "version": "0.3.4",
   "description": "OpenIM protocol channel for OpenClaw",
-  "author": "openclaw-openim",
+  "author": "ZeyiY",
   "channels": [
     "openim"
   ],
